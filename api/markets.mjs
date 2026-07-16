@@ -1,5 +1,4 @@
 const GAMMA_API = 'https://gamma-api.polymarket.com/markets?limit=200&closed=false&order=createdAt&ascending=false';
-const GAMMA_EVENTS_API = 'https://gamma-api.polymarket.com/events?limit=100&closed=false&order_by=creationDate&ascending=false';
 
 const SKIP_REGEX = [
   /up or down/i,
@@ -49,13 +48,14 @@ const SKIP_REGEX = [
   /2nd half/i,
   /team total/i,
   /btts/i,
-  /\d+ shots on target/i,
-  /\d+ assists/i,
-  /\d+ saves/i,
-  /\d+ clearances/i,
-  /\d+ tackles/i,
-  /\d+ passes/i,
-  /\d+ fouls/i,
+  /both teams? to score/i,
+  /\d+ shots? on target/i,
+  /\d+ assists?/i,
+  /\d+ saves?/i,
+  /\d+ clearances?/i,
+  /\d+ tackles?/i,
+  /\d+ passes?/i,
+  /\d+ fouls?/i,
   /to be (carded|booked|sent off)/i,
   /to score (a goal|first|anytime|last)/i,
   /to receive a/i,
@@ -63,33 +63,21 @@ const SKIP_REGEX = [
   /most goals/i,
   /number of goals/i,
   /anything to happen/i,
-  /correct score\b/i,
   /alternate (total|spread)/i,
   /player (total|props|to |under |over )/i,
   /winner: /i,
   /exact goals/i,
   /double chance/i,
-  /both (team|halves) to/i,
-];
-
-const SKIP_IF_NO_BIG_KEYWORD = [
-  / vs /i,
-  /\bteam\b.*\bwin\b/i,
-  /\/\d+\b/i,
-  /o\/u/i,
-  /over.*under/i,
-  /final (score|result)/i,
-  /to advance/i,
-  /\d+\.?\d* goals/i,
-  /\d+\.?\d* points/i,
-  /will they (score|win|lose|draw)/i,
-  /anytime scorer/i,
+  /total (\w+ )?goals/i,
   /match result/i,
   /win to nil/i,
   /clean sheet/i,
   /draw no bet/i,
-  /half time/i,
-  /full time/i,
+  /half time\/full time/i,
+  /anytime scorer/i,
+  /both halves? to score/i,
+  /xG/i,
+  /and over \d+\.?\d*/i,
 ];
 
 const SHORT_TIME_REGEX = /\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M/i;
@@ -107,7 +95,7 @@ const BIG_KEYWORDS = [
   /crypto/i,
   /ipo/i,
   /fed rate/i,
-  /war /i,
+  /\bwar\b/i,
   /invasion/i,
   /captur/i,
   /cease/i,
@@ -120,13 +108,30 @@ const BIG_KEYWORDS = [
   /iran/i,
   /credible/i,
   /king of the hill/i,
+  /spacex/i,
+  /trump/i,
+  /super bowl/i,
+];
+
+const GENERIC_SPORTS_REGEX = [
+  / vs\.? /i,
+  /\bteam\b.*\bwin\b/i,
+  /\/\d+\b/i,
+  /o\/u/i,
+  /over.*under/i,
+  /final (score|result)/i,
+  /to advance/i,
+  /\d+\.?\d* goals/i,
+  /\d+\.?\d* points/i,
+  /will they (score|win|lose|draw)/i,
+  /half time/i,
+  /full time/i,
 ];
 
 function shouldSkip(text) {
-  const t = text;
-  if (SHORT_TIME_REGEX.test(t)) return true;
+  if (SHORT_TIME_REGEX.test(text)) return true;
   for (const re of SKIP_REGEX) {
-    if (re.test(t)) return true;
+    if (re.test(text)) return true;
   }
   return false;
 }
@@ -139,7 +144,7 @@ function hasBigKeywords(text) {
 }
 
 function isGenericSportsProp(text) {
-  for (const re of SKIP_IF_NO_BIG_KEYWORD) {
+  for (const re of GENERIC_SPORTS_REGEX) {
     if (re.test(text)) return true;
   }
   return false;
@@ -206,19 +211,22 @@ export default async function handler(req, res) {
       if (seenSlugs.has(slug)) continue;
       seenSlugs.add(slug);
 
-      if (shouldSkip(question)) continue;
+      // Big keyword check FIRST — if it's a significant event, keep it regardless
+      const hasKeyword = hasBigKeywords(question);
+
+      if (!hasKeyword) {
+        // For non-keyword markets, run strict filtering
+        if (shouldSkip(question)) continue;
+
+        const isGeneric = (
+          /^will (the price of )?(\w+ )?(be above|reach|dip|drop|below|hit|touch)/i.test(question) ||
+          isGenericSportsProp(question)
+        );
+        if (isGeneric) continue;
+      }
 
       const volume = parseNumeric(m.volume);
       const liquidity = parseNumeric(m.liquidity || m.liquidityClob || '0');
-      const hasKeyword = hasBigKeywords(question);
-
-      const isGenericMarket = !hasKeyword && (
-        /^will (the price of )?(\w+ )?(be above|reach|dip|drop|below|hit|touch)/i.test(question) ||
-        isGenericSportsProp(question)
-      );
-
-      if (isGenericMarket) continue;
-
       const createdAt = m.createdAt || '';
       const endDate = m.endDate || '';
 

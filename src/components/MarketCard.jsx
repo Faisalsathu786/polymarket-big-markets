@@ -30,12 +30,13 @@ function formatDate(dateStr) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function getCategoryColor(cat) {
+function getCategoryColor(cat, q) {
   const c = (cat || '').toLowerCase();
-  if (c.includes('polit')) return '#e74c3c';
-  if (c.includes('crypto') || c.includes('bitcoin') || c.includes('eth')) return '#f39c12';
-  if (c.includes('sport')) return '#2ecc71';
-  if (c.includes('war') || c.includes('conflict')) return '#c0392b';
+  const t = (q || '').toLowerCase();
+  if (c === 'big') return '#2ecc71';
+  if (t.includes('polit') || t.includes('election') || t.includes('president') || t.includes('iran') || t.includes('israel') || t.includes('war') || t.includes('strait')) return '#e74c3c';
+  if (t.includes('bitcoin') || t.includes('ethereum') || t.includes('btc') || t.includes('eth') || t.includes('crypto')) return '#f39c12';
+  if (t.includes('world cup') || t.includes('championship') || t.includes('final')) return '#2ecc71';
   return '#3498db';
 }
 
@@ -50,7 +51,7 @@ export default function MarketCard({ market }) {
   return (
     <div style={{
       ...styles.card,
-      borderLeft: `4px solid ${getCategoryColor(m.category || m.question)}`,
+      borderLeft: `4px solid ${getCategoryColor(m.category, m.question)}`,
     }}>
       {m.isNew && <div style={styles.newBadge}>NEW</div>}
 

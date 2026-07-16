@@ -22,6 +22,28 @@ const SKIP_REGEX = [
   /extra time/i,
   /penalty shootout/i,
   /will the match go to/i,
+  /both teams slay/i,
+  /odd\/even (total )?kills/i,
+  /map \d+:? /i,
+  /game \d:? /i,
+  /round \d+ (total|handicap)/i,
+  /first (blood|tower|dragon|baron|kill)/i,
+  /will (\w+ )?win (map |game )?\d/i,
+  /correct score/i,
+  /exact score/i,
+  /total kills/i,
+  /total rounds/i,
+  /race to \d/i,
+  /cs2[\s-]/i,
+  /league of legends/i,
+  /dota 2/i,
+  /valorant/i,
+  /will (\w+ )?be the (top|first)/i,
+  /draftkings/i,
+  /spread -?\d+/i,
+  /under \d+\.?\d*$/i,
+  /over \d+\.?\d*$/i,
+  /(\w+ vs \w+) \d+:\d+/i,
 ];
 
 const SHORT_TIME_REGEX = /\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M/i;
@@ -51,6 +73,7 @@ const BIG_KEYWORDS = [
   /israel/i,
   /iran/i,
   /credible/i,
+  /king of the hill/i,
 ];
 
 function shouldSkip(text) {
@@ -62,7 +85,7 @@ function shouldSkip(text) {
   return false;
 }
 
-function isBig(text) {
+function hasBigKeywords(text) {
   for (const re of BIG_KEYWORDS) {
     if (re.test(text)) return true;
   }
@@ -92,6 +115,12 @@ function formatVolume(v) {
   return isNaN(n) ? '0' : String(n);
 }
 
+function parseNumeric(v) {
+  if (!v) return 0;
+  const n = parseFloat(String(v).replace(/[$,]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
 export default async function handler(req, res) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -107,7 +136,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Fetch gamma markets (newest first)
     const gammaRes = await fetch(GAMMA_API, {
       headers: { 'User-Agent': 'PolymarketMonitor/1.0' },
       signal: AbortSignal.timeout(10000),
@@ -115,14 +143,26 @@ export default async function handler(req, res) {
     if (!gammaRes.ok) throw new Error(`Gamma API error: ${gammaRes.status}`);
     const gammaData = await gammaRes.json();
 
-    const now = Date.now();
+    const seenSlugs = new Set();
     const results = [];
 
     for (const m of gammaData) {
       const question = (m.question || '').trim();
       const slug = (m.slug || '').trim() || m.conditionId;
       if (!question || !slug) continue;
+      if (seenSlugs.has(slug)) continue;
+      seenSlugs.add(slug);
+
       if (shouldSkip(question)) continue;
+
+      const volume = parseNumeric(m.volume);
+      const liquidity = parseNumeric(m.liquidity || m.liquidityClob || '0');
+      const hasKeyword = hasBigKeywords(question);
+
+      const isGenericMarket = !hasKeyword &&
+        /^will (the price of )?(\w+ )?(be above|reach|dip|drop|below|hit|touch)/i.test(question);
+
+      if (isGenericMarket) continue;
 
       const createdAt = m.createdAt || '';
       const endDate = m.endDate || '';
@@ -139,12 +179,14 @@ export default async function handler(req, res) {
         url: `https://polymarket.com/event/${slug}`,
         isResolved: !!m.closed || !!m.resolved,
         source: 'gamma',
-        category: 'general',
+        category: hasKeyword ? 'big' : 'general',
       });
     }
 
-    // Sort by creation date descending (newest first)
     results.sort((a, b) => {
+      const va = parseNumeric(a.volume);
+      const vb = parseNumeric(b.volume);
+      if (Math.abs(va - vb) > 1000) return vb - va;
       if (a.createdAt && b.createdAt) return new Date(b.createdAt) - new Date(a.createdAt);
       if (a.createdAt) return -1;
       if (b.createdAt) return 1;

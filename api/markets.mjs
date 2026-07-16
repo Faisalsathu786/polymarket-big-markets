@@ -1,5 +1,3 @@
-import fetch from 'node-fetch';
-
 const GAMMA_API = 'https://gamma-api.polymarket.com/markets?limit=200&closed=false&order=createdAt&ascending=false';
 const GAMMA_EVENTS_API = 'https://gamma-api.polymarket.com/events?limit=100&closed=false&order_by=creationDate&ascending=false';
 

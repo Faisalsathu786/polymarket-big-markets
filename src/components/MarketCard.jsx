@@ -31,20 +31,20 @@ function formatDate(dateStr) {
 }
 
 function getCategoryColor(cat, q) {
-  const c = (cat || '').toLowerCase();
   const t = (q || '').toLowerCase();
-  if (c === 'big') return '#2ecc71';
+  if (cat === 'big') return '#2ecc71';
   if (t.includes('polit') || t.includes('election') || t.includes('president') || t.includes('iran') || t.includes('israel') || t.includes('war') || t.includes('strait')) return '#e74c3c';
-  if (t.includes('bitcoin') || t.includes('ethereum') || t.includes('btc') || t.includes('eth') || t.includes('crypto')) return '#f39c12';
-  if (t.includes('world cup') || t.includes('championship') || t.includes('final')) return '#2ecc71';
+  if (t.includes('bitcoin') || t.includes('ethereum') || t.includes('btc') || t.includes('eth') || t.includes('crypto') || t.includes('credible')) return '#f39c12';
+  if (t.includes('world cup') || t.includes('championship') || t.includes('final') || t.includes('golden boot')) return '#2ecc71';
   return '#3498db';
 }
 
-export default function MarketCard({ market }) {
+export default function MarketCard({ market, isNewHighlight }) {
   const [expanded, setExpanded] = useState(false);
   const m = market;
   const outcomes = m.outcomes || [];
   const hasVolume = m.volume && m.volume !== '0';
+  const hasLiq = m.liquidity && m.liquidity !== '0';
 
   if (!m.slug && !m.question) return null;
 
@@ -52,32 +52,49 @@ export default function MarketCard({ market }) {
     <div style={{
       ...styles.card,
       borderLeft: `4px solid ${getCategoryColor(m.category, m.question)}`,
+      ...(isNewHighlight ? {
+        border: '2px solid #27ae60',
+        boxShadow: '0 2px 12px rgba(39,174,96,0.2)',
+      } : {}),
     }}>
-      {m.isNew && <div style={styles.newBadge}>NEW</div>}
+      {isNewHighlight && <div style={styles.liveBadge}>LIVE</div>}
+      {m.isNew && !isNewHighlight && <div style={styles.newBadge}>NEW</div>}
 
-      <div style={styles.question}>{m.question}</div>
+      <div style={{
+        ...styles.question,
+        ...(isNewHighlight ? { color: '#27ae60' } : {}),
+      }}>
+        {m.question}
+        {isNewHighlight && <span style={styles.pulse}> ●</span>}
+      </div>
 
       <div style={styles.meta}>
         {hasVolume && <span style={styles.metaItem}>Vol: {formatVolume(m.volume)}</span>}
-        {m.createdAt && <span style={styles.metaItem}>{timeAgo(m.createdAt)}</span>}
+        {hasLiq && <span style={styles.metaItem}>Liq: {formatVolume(m.liquidity)}</span>}
+        {m.createdAt && <span style={{
+          ...styles.metaItem,
+          ...(isNewHighlight ? { color: '#27ae60', fontWeight: '600' } : {}),
+        }}>{timeAgo(m.createdAt)}</span>}
         {m.endDate && <span style={styles.metaItem}>Ends {formatDate(m.endDate)}</span>}
       </div>
 
-      <div style={styles.outcomes}>
-        {outcomes.slice(0, expanded ? outcomes.length : 4).map((o, i) => (
-          <span key={i} style={styles.outcome}>{o}</span>
-        ))}
-        {outcomes.length > 4 && !expanded && (
-          <button onClick={() => setExpanded(true)} style={styles.showMoreBtn}>
-            +{outcomes.length - 4} more
-          </button>
-        )}
-        {expanded && outcomes.length > 4 && (
-          <button onClick={() => setExpanded(false)} style={styles.showMoreBtn}>
-            Show less
-          </button>
-        )}
-      </div>
+      {outcomes.length > 0 && (
+        <div style={styles.outcomes}>
+          {outcomes.slice(0, expanded ? outcomes.length : 4).map((o, i) => (
+            <span key={i} style={styles.outcome}>{o}</span>
+          ))}
+          {outcomes.length > 4 && !expanded && (
+            <button onClick={() => setExpanded(true)} style={styles.showMoreBtn}>
+              +{outcomes.length - 4} more
+            </button>
+          )}
+          {expanded && outcomes.length > 4 && (
+            <button onClick={() => setExpanded(false)} style={styles.showMoreBtn}>
+              Show less
+            </button>
+          )}
+        </div>
+      )}
 
       <div style={styles.actions}>
         <a href={m.url || `https://polymarket.com/event/${m.slug}`} target="_blank" rel="noopener noreferrer" style={styles.link}>
@@ -92,36 +109,54 @@ const styles = {
   card: {
     background: '#fff',
     borderRadius: '8px',
-    padding: '16px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+    padding: '14px',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
     position: 'relative',
-    border: '1px solid #e8e8e8',
+    border: '1px solid #eee',
+    transition: 'all 0.2s ease',
   },
   newBadge: {
     position: 'absolute',
-    top: '8px',
-    right: '8px',
+    top: '6px',
+    right: '6px',
     background: '#2ecc71',
+    color: '#fff',
+    fontSize: '0.6rem',
+    fontWeight: '700',
+    padding: '2px 6px',
+    borderRadius: '3px',
+  },
+  liveBadge: {
+    position: 'absolute',
+    top: '6px',
+    right: '6px',
+    background: '#e74c3c',
     color: '#fff',
     fontSize: '0.65rem',
     fontWeight: '700',
     padding: '2px 8px',
     borderRadius: '3px',
+    animation: 'pulseGlow 1.5s ease-in-out infinite',
   },
   question: {
-    fontSize: '0.95rem',
+    fontSize: '0.9rem',
     fontWeight: '600',
     color: '#1a1a2e',
-    marginBottom: '10px',
+    marginBottom: '8px',
     lineHeight: '1.3',
     paddingRight: '50px',
+  },
+  pulse: {
+    color: '#27ae60',
+    animation: 'blink 1s step-end infinite',
+    fontSize: '1rem',
   },
   meta: {
     display: 'flex',
     flexWrap: 'wrap',
-    gap: '12px',
-    marginBottom: '10px',
-    fontSize: '0.75rem',
+    gap: '10px',
+    marginBottom: '8px',
+    fontSize: '0.72rem',
     color: '#888',
   },
   metaItem: {},
@@ -129,13 +164,13 @@ const styles = {
     display: 'flex',
     flexWrap: 'wrap',
     gap: '4px',
-    marginBottom: '12px',
+    marginBottom: '10px',
   },
   outcome: {
     background: '#f0f2f5',
     padding: '3px 8px',
     borderRadius: '4px',
-    fontSize: '0.75rem',
+    fontSize: '0.72rem',
     color: '#555',
   },
   showMoreBtn: {
@@ -143,7 +178,7 @@ const styles = {
     border: 'none',
     color: '#3498db',
     cursor: 'pointer',
-    fontSize: '0.75rem',
+    fontSize: '0.72rem',
     padding: '3px 8px',
   },
   actions: {
@@ -151,7 +186,7 @@ const styles = {
     gap: '8px',
   },
   link: {
-    fontSize: '0.8rem',
+    fontSize: '0.78rem',
     color: '#3498db',
     textDecoration: 'none',
   },

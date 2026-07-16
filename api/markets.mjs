@@ -44,6 +44,52 @@ const SKIP_REGEX = [
   /under \d+\.?\d*$/i,
   /over \d+\.?\d*$/i,
   /(\w+ vs \w+) \d+:\d+/i,
+  /game handicap/i,
+  /1st half/i,
+  /2nd half/i,
+  /team total/i,
+  /btts/i,
+  /\d+ shots on target/i,
+  /\d+ assists/i,
+  /\d+ saves/i,
+  /\d+ clearances/i,
+  /\d+ tackles/i,
+  /\d+ passes/i,
+  /\d+ fouls/i,
+  /to be (carded|booked|sent off)/i,
+  /to score (a goal|first|anytime|last)/i,
+  /to receive a/i,
+  /method of victory/i,
+  /most goals/i,
+  /number of goals/i,
+  /anything to happen/i,
+  /correct score\b/i,
+  /alternate (total|spread)/i,
+  /player (total|props|to |under |over )/i,
+  /winner: /i,
+  /exact goals/i,
+  /double chance/i,
+  /both (team|halves) to/i,
+];
+
+const SKIP_IF_NO_BIG_KEYWORD = [
+  / vs /i,
+  /\bteam\b.*\bwin\b/i,
+  /\/\d+\b/i,
+  /o\/u/i,
+  /over.*under/i,
+  /final (score|result)/i,
+  /to advance/i,
+  /\d+\.?\d* goals/i,
+  /\d+\.?\d* points/i,
+  /will they (score|win|lose|draw)/i,
+  /anytime scorer/i,
+  /match result/i,
+  /win to nil/i,
+  /clean sheet/i,
+  /draw no bet/i,
+  /half time/i,
+  /full time/i,
 ];
 
 const SHORT_TIME_REGEX = /\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M/i;
@@ -87,6 +133,13 @@ function shouldSkip(text) {
 
 function hasBigKeywords(text) {
   for (const re of BIG_KEYWORDS) {
+    if (re.test(text)) return true;
+  }
+  return false;
+}
+
+function isGenericSportsProp(text) {
+  for (const re of SKIP_IF_NO_BIG_KEYWORD) {
     if (re.test(text)) return true;
   }
   return false;
@@ -159,8 +212,10 @@ export default async function handler(req, res) {
       const liquidity = parseNumeric(m.liquidity || m.liquidityClob || '0');
       const hasKeyword = hasBigKeywords(question);
 
-      const isGenericMarket = !hasKeyword &&
-        /^will (the price of )?(\w+ )?(be above|reach|dip|drop|below|hit|touch)/i.test(question);
+      const isGenericMarket = !hasKeyword && (
+        /^will (the price of )?(\w+ )?(be above|reach|dip|drop|below|hit|touch)/i.test(question) ||
+        isGenericSportsProp(question)
+      );
 
       if (isGenericMarket) continue;
 

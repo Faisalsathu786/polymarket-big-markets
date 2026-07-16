@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import MarketCard from './components/MarketCard.jsx';
 
 const API_URL = '/api/markets';
@@ -20,56 +20,58 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [countdown, setCountdown] = useState(REFRESH_MS / 1000);
+  const [alertCount, setAlertCount] = useState(0);
+  const [flashAlert, setFlashAlert] = useState(false);
+  const prevCountRef = useRef(0);
 
-  const fetchMarkets = useCallback(async (isInitial) => {
+  const fetchMarkets = useCallback(async () => {
     try {
       const res = await fetch(API_URL + '?limit=100');
       if (!res.ok) throw new Error('API error');
       const data = await res.json();
       const seen = getSeenSet();
-      const now = Date.now();
+      const incoming = data.markets || [];
 
-      const enriched = (data.markets || []).map(m => {
+      const newSlugs = [];
+      const enriched = incoming.map(m => {
         const isNew = !seen.has(m.slug);
-        if (isNew && isInitial) seen.add(m.slug);
+        if (isNew) {
+          seen.add(m.slug);
+          newSlugs.push(m.slug);
+        }
         return { ...m, isNew };
       });
 
-      if (isInitial) saveSeen(seen);
+      if (newSlugs.length > 0) {
+        saveSeen(seen);
+        setAlertCount(c => c + newSlugs.length);
+        setFlashAlert(true);
+        setTimeout(() => setFlashAlert(false), 5000);
+      }
 
-      setMarkets(enriched);
+      if (markets.length === 0 || newSlugs.length > 0) {
+        setMarkets(enriched);
+      }
       setError(null);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [markets.length]);
 
   useEffect(() => {
-    fetchMarkets(true);
-    const interval = setInterval(() => fetchMarkets(false), REFRESH_MS);
+    fetchMarkets();
+    const interval = setInterval(fetchMarkets, REFRESH_MS);
     const countdownInterval = setInterval(() => {
       setCountdown(prev => (prev <= 1 ? REFRESH_MS / 1000 : prev - 1));
     }, 1000);
     return () => { clearInterval(interval); clearInterval(countdownInterval); };
   }, [fetchMarkets]);
 
-  useEffect(() => {
-    if (markets.length === 0) return;
-    const seen = getSeenSet();
-    let changed = false;
-    for (const m of markets) {
-      if (!seen.has(m.slug)) {
-        seen.add(m.slug);
-        changed = true;
-      }
-    }
-    if (changed) saveSeen(seen);
-  }, [markets]);
-
-  const liveMarkets = markets.filter(m => !m.isResolved);
-  const resolvedMarkets = markets.filter(m => m.isResolved);
+  const newMarkets = markets.filter(m => m.isNew);
+  const liveMarkets = markets.filter(m => !m.isNew && !m.isResolved);
+  const resolvedMarkets = markets.filter(m => m.isNew === false && m.isResolved);
 
   if (loading) {
     return (
@@ -87,26 +89,57 @@ export default function App() {
       <div style={styles.header}>
         <h1 style={styles.title}>Polymarket Big Markets</h1>
         <p style={styles.subtitle}>
-          Significant geopolitical, crypto, sports, and political events
+          Significant political, crypto, sports, and geopolitical events
           {error && <span style={styles.error}> - {error}</span>}
         </p>
         <div style={styles.statusBar}>
-          <span>{liveMarkets.length} active / {resolvedMarkets.length} resolved</span>
+          <span>{markets.length} markets tracked</span>
           <span>Refresh in {countdown}s</span>
-          <button onClick={() => { setLoading(true); fetchMarkets(false); }} style={styles.refreshBtn}>
+          <button onClick={() => { setMarkets([]); setLoading(true); }} style={styles.refreshBtn}>
             Refresh Now
           </button>
         </div>
       </div>
 
-      <div style={styles.grid}>
-        {liveMarkets.map(m => (
-          <MarketCard key={m.conditionId || m.slug} market={m} />
-        ))}
-        {resolvedMarkets.map(m => (
-          <MarketCard key={m.conditionId || m.slug} market={m} />
-        ))}
+      {flashAlert && newMarkets.length > 0 && (
+        <div style={styles.alertBanner}>
+          {newMarkets.length} new market{newMarkets.length > 1 ? 's' : ''} detected!
+        </div>
+      )}
+
+      {newMarkets.length > 0 && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Just Added</h2>
+          <div style={styles.grid}>
+            {newMarkets.map(m => (
+              <MarketCard key={m.conditionId || m.slug} market={m} isNewHighlight={true} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>
+          Active Markets
+          {alertCount > 0 && <span style={styles.alertCount}>({alertCount} new since load)</span>}
+        </h2>
+        <div style={styles.grid}>
+          {liveMarkets.map(m => (
+            <MarketCard key={m.conditionId || m.slug} market={m} />
+          ))}
+        </div>
       </div>
+
+      {resolvedMarkets.length > 0 && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Resolved</h2>
+          <div style={styles.grid}>
+            {resolvedMarkets.map(m => (
+              <MarketCard key={m.conditionId || m.slug} market={m} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {markets.length === 0 && (
         <div style={styles.empty}>
@@ -128,9 +161,11 @@ const styles = {
     margin: '0 auto',
     padding: '20px 16px',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    background: '#f8f9fa',
+    minHeight: '100vh',
   },
   header: {
-    marginBottom: '24px',
+    marginBottom: '20px',
   },
   title: {
     fontSize: '1.8rem',
@@ -161,10 +196,35 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.8rem',
   },
+  alertBanner: {
+    background: '#27ae60',
+    color: '#fff',
+    padding: '10px 16px',
+    borderRadius: '8px',
+    fontWeight: '600',
+    fontSize: '0.95rem',
+    marginBottom: '16px',
+    animation: 'fadeIn 0.5s ease-in',
+  },
+  section: {
+    marginBottom: '28px',
+  },
+  sectionTitle: {
+    fontSize: '1.1rem',
+    fontWeight: '600',
+    color: '#1a1a2e',
+    margin: '0 0 12px',
+  },
+  alertCount: {
+    fontSize: '0.75rem',
+    color: '#27ae60',
+    fontWeight: '400',
+    marginLeft: '8px',
+  },
   grid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
-    gap: '16px',
+    gap: '12px',
   },
   empty: {
     textAlign: 'center',

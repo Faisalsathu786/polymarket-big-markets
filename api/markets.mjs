@@ -111,6 +111,10 @@ const BIG_KEYWORDS = [
   /spacex/i,
   /trump/i,
   /super bowl/i,
+  /fifwc/i,
+  /fifa/i,
+  /euro \d+/i,
+  /olymp(c|ic)/i,
 ];
 
 const GENERIC_SPORTS_REGEX = [
@@ -211,13 +215,22 @@ export default async function handler(req, res) {
       if (seenSlugs.has(slug)) continue;
       seenSlugs.add(slug);
 
-      // Big keyword check FIRST — if it's a significant event, keep it regardless
-      const hasKeyword = hasBigKeywords(question);
+      // Always run shouldSkip first — catches price-guess markets even if they have big keywords
+      if (shouldSkip(question)) continue;
+
+      // Check both question text and slug for big keywords (slug often carries event context)
+            const hasSignificantSlug = !hasBigKeywords(question) && (
+        /fif/i.test(slug) ||
+        /worldcup/i.test(slug) ||
+        /final/i.test(slug) ||
+        /championship/i.test(slug) ||
+        /semi/i.test(slug.replace(/-/g, '')) ||
+        /quarter/i.test(slug.replace(/-/g, ''))
+      );
+      const hasKeyword = hasBigKeywords(question) || hasBigKeywords(slug) || hasSignificantSlug;
 
       if (!hasKeyword) {
-        // For non-keyword markets, run strict filtering
-        if (shouldSkip(question)) continue;
-
+        // For non-keyword markets, also filter generic sports props
         const isGeneric = (
           /^will (the price of )?(\w+ )?(be above|reach|dip|drop|below|hit|touch)/i.test(question) ||
           isGenericSportsProp(question)

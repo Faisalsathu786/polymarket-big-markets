@@ -1,6 +1,7 @@
 const GAMMA_API = 'https://gamma-api.polymarket.com/markets?limit=200&closed=false&order=createdAt&ascending=false';
 
-const SKIP_REGEX = [
+// Patterns that always skip — price-guessing, gaming props, esports minutiae
+const ALWAYS_SKIP = [
   /up or down/i,
   /up\/down/i,
   /price range/i,
@@ -17,10 +18,6 @@ const SKIP_REGEX = [
   /spread:/i,
   /o\/u \d\.\d/i,
   /total \d\.\d/i,
-  /team to (win|score|advance)/i,
-  /extra time/i,
-  /penalty shootout/i,
-  /will the match go to/i,
   /both teams slay/i,
   /odd\/even (total )?kills/i,
   /map \d+:? /i,
@@ -44,9 +41,6 @@ const SKIP_REGEX = [
   /over \d+\.?\d*$/i,
   /(\w+ vs \w+) \d+:\d+/i,
   /game handicap/i,
-  /1st half/i,
-  /2nd half/i,
-  /team total/i,
   /btts/i,
   /both teams? to score/i,
   /\d+ shots? on target/i,
@@ -69,15 +63,35 @@ const SKIP_REGEX = [
   /exact goals/i,
   /double chance/i,
   /total (\w+ )?goals/i,
-  /match result/i,
   /win to nil/i,
   /clean sheet/i,
   /draw no bet/i,
-  /half time\/full time/i,
   /anytime scorer/i,
   /both halves? to score/i,
   /xG/i,
   /and over \d+\.?\d*/i,
+  /match result/i,
+  /half time\/full time/i,
+];
+
+// Patterns that skip ONLY when the market has no big keyword (keeps World Cup etc.)
+const GENERIC_SPORTS = [
+  / vs\.? /i,
+  /\bteam\b.*\bwin\b/i,
+  /\/\d+\b/i,
+  /o\/u/i,
+  /over.*under/i,
+  /final (score|result)/i,
+  /to advance/i,
+  /\d+\.?\d* goals/i,
+  /\d+\.?\d* points/i,
+  /will they (score|win|lose|draw)/i,
+  /half time/i,
+  /full time/i,
+  /team to (win|score|advance)/i,
+  /1st half/i,
+  /2nd half/i,
+  /team total/i,
 ];
 
 const SHORT_TIME_REGEX = /\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M/i;
@@ -117,24 +131,9 @@ const BIG_KEYWORDS = [
   /olymp(c|ic)/i,
 ];
 
-const GENERIC_SPORTS_REGEX = [
-  / vs\.? /i,
-  /\bteam\b.*\bwin\b/i,
-  /\/\d+\b/i,
-  /o\/u/i,
-  /over.*under/i,
-  /final (score|result)/i,
-  /to advance/i,
-  /\d+\.?\d* goals/i,
-  /\d+\.?\d* points/i,
-  /will they (score|win|lose|draw)/i,
-  /half time/i,
-  /full time/i,
-];
-
-function shouldSkip(text) {
+function alwaysSkip(text) {
   if (SHORT_TIME_REGEX.test(text)) return true;
-  for (const re of SKIP_REGEX) {
+  for (const re of ALWAYS_SKIP) {
     if (re.test(text)) return true;
   }
   return false;
@@ -147,11 +146,15 @@ function hasBigKeywords(text) {
   return false;
 }
 
-function isGenericSportsProp(text) {
-  for (const re of GENERIC_SPORTS_REGEX) {
+function isGenericSports(text) {
+  for (const re of GENERIC_SPORTS) {
     if (re.test(text)) return true;
   }
   return false;
+}
+
+function isPriceGuess(text) {
+  return /^will (the price of )?(\w+ )?(be above|reach|dip|drop|below|hit|touch)/i.test(text);
 }
 
 function extractOutcomes(m) {
@@ -215,27 +218,21 @@ export default async function handler(req, res) {
       if (seenSlugs.has(slug)) continue;
       seenSlugs.add(slug);
 
-      // Always run shouldSkip first — catches price-guess markets even if they have big keywords
-      if (shouldSkip(question)) continue;
+      // Step 1: Always skip price-guessing and gaming minutiae
+      if (alwaysSkip(question)) continue;
 
-      // Check both question text and slug for big keywords (slug often carries event context)
-            const hasSignificantSlug = !hasBigKeywords(question) && (
+      // Step 2: Check if this is a significant event
+      const hasKeyword = hasBigKeywords(question) || hasBigKeywords(slug);
+      const isSigEvent = hasKeyword ||
         /fif/i.test(slug) ||
         /worldcup/i.test(slug) ||
         /final/i.test(slug) ||
-        /championship/i.test(slug) ||
-        /semi/i.test(slug.replace(/-/g, '')) ||
-        /quarter/i.test(slug.replace(/-/g, ''))
-      );
-      const hasKeyword = hasBigKeywords(question) || hasBigKeywords(slug) || hasSignificantSlug;
+        /championship/i.test(slug);
 
-      if (!hasKeyword) {
-        // For non-keyword markets, also filter generic sports props
-        const isGeneric = (
-          /^will (the price of )?(\w+ )?(be above|reach|dip|drop|below|hit|touch)/i.test(question) ||
-          isGenericSportsProp(question)
-        );
-        if (isGeneric) continue;
+      // Step 3: For non-significant events, filter generic sports props and price guesses
+      if (!isSigEvent) {
+        if (isGenericSports(question)) continue;
+        if (isPriceGuess(question)) continue;
       }
 
       const volume = parseNumeric(m.volume);
@@ -255,7 +252,7 @@ export default async function handler(req, res) {
         url: `https://polymarket.com/event/${slug}`,
         isResolved: !!m.closed || !!m.resolved,
         source: 'gamma',
-        category: hasKeyword ? 'big' : 'general',
+        category: isSigEvent ? 'big' : 'general',
       });
     }
 
